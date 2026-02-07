@@ -1,0 +1,7 @@
+project_id = "jsypwmeqsyzjznmigevu"
+
+[functions.analyze-room]
+verify_jwt = false
+
+[functions.apply-color]
+verify_jwt = false
