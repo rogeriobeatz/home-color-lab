@@ -87,12 +87,52 @@ export function EditorView({ onBack }: EditorViewProps) {
       color.brand
     );
 
-    toast({
-      title: 'Cor aplicada!',
-      description: `${color.name} aplicada ao elemento selecionado.`,
-    });
+    // Call AI to apply color to the image
+    const element = state.elements.find(el => el.id === state.selectedElementId);
+    if (element && state.originalImage) {
+      setProcessing(true, `Aplicando ${color.name}...`);
+      setProcessingProgress(20);
 
-    // TODO: Call AI to apply color to the image
+      try {
+        setProcessingProgress(50);
+        const { data, error } = await supabase.functions.invoke('apply-color', {
+          body: {
+            image: state.processedImage || state.originalImage,
+            elementType: element.type === 'wall' ? element.name : element.type,
+            color: color.hex,
+            colorName: color.name,
+          }
+        });
+
+        if (error) throw error;
+
+        setProcessingProgress(90);
+
+        if (data?.success && data?.image) {
+          setProcessedImage(data.image);
+          toast({
+            title: 'Cor aplicada!',
+            description: `${color.name} aplicada com sucesso.`,
+          });
+        } else {
+          toast({
+            title: 'Cor registrada',
+            description: `${color.name} selecionada, mas a visualização não pôde ser gerada.`,
+            variant: 'destructive',
+          });
+        }
+      } catch (err) {
+        console.error('Error applying color:', err);
+        toast({
+          title: 'Erro ao aplicar cor',
+          description: 'Não foi possível gerar a visualização. Tente novamente.',
+          variant: 'destructive',
+        });
+      } finally {
+        setProcessing(false);
+        setProcessingProgress(0);
+      }
+    }
   };
 
   const handleDownload = () => {
