@@ -79,17 +79,11 @@ export function ColorCatalog({ onColorSelect, selectedColorId }: ColorCatalogPro
           {filteredColors.map(color => (
             <button
               key={color.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('application/json', JSON.stringify(color));
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
               onClick={() => onColorSelect(color)}
               className={cn(
-                "relative group rounded-lg overflow-hidden transition-all duration-200 hover:scale-105 cursor-grab active:cursor-grabbing",
+                "relative group rounded-lg overflow-hidden transition-all duration-200 hover:scale-105",
                 selectedColorId === color.id && "ring-2 ring-primary ring-offset-2"
               )}
-              title={`Arraste para a imagem ou clique para aplicar — ${color.name} (${color.code})`}
             >
               <div
                 className="aspect-square"
