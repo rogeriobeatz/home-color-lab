@@ -46,13 +46,15 @@ Analyze the provided room image and identify the following elements:
 - Doors and windows (to exclude from painting)
 - Furniture (to exclude from painting)
 
+Also identify the type of room (e.g., "Sala de Estar", "Quarto", "Cozinha", "Banheiro", "Escritório") and return it as "roomName" in Portuguese.
+
 For each element, provide:
 1. A unique ID (e.g., "wall-1", "ceiling", "floor")
 2. A descriptive name in Portuguese (e.g., "Parede Principal", "Teto", "Piso")
 3. The type (wall, ceiling, floor, door, window, furniture)
 4. Approximate position in the image (top, bottom, left, right, center)
 
-Return your analysis as a JSON object with an "elements" array.`
+Return your analysis as a JSON object with "roomName" and "elements" array.`
           },
           {
             role: "user",
@@ -93,12 +95,16 @@ Return your analysis as a JSON object with an "elements" array.`
                       required: ["id", "name", "type", "canPaint"]
                     }
                   },
+                  roomName: {
+                    type: "string",
+                    description: "Name of the room type in Portuguese, e.g. Sala de Estar, Quarto, Cozinha"
+                  },
                   description: {
                     type: "string",
                     description: "Brief description of the room in Portuguese"
                   }
                 },
-                required: ["elements", "description"]
+                required: ["elements", "roomName", "description"]
               }
             }
           }

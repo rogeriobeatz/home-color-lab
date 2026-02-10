@@ -8,20 +8,25 @@ export interface RoomElement {
   colorBrand?: string;
 }
 
-export interface ProjectState {
-  originalImage: string | null;
-  processedImage: string | null;
+export interface Room {
+  id: string;
+  name: string;
+  originalImage: string;
+  processedImage: string;
   elements: RoomElement[];
   selectedElementId: string | null;
+}
+
+export interface ProjectState {
+  rooms: Room[];
+  activeRoomId: string | null;
   isProcessing: boolean;
   processingStep: string;
 }
 
 export const initialProjectState: ProjectState = {
-  originalImage: null,
-  processedImage: null,
-  elements: [],
-  selectedElementId: null,
+  rooms: [],
+  activeRoomId: null,
   isProcessing: false,
   processingStep: '',
 };
