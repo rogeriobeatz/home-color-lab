@@ -25,82 +25,113 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Use Gemini image generation to apply the color
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [
-          {
-            role: "user",
-            content: [
+    // Retry logic for transient errors
+    const maxRetries = 2;
+    let lastError: string | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-image",
+            messages: [
               {
-                type: "text",
-                text: `Edit this room image: Change the color of the ${elementType} to ${colorName || color}. 
-                
-Important instructions:
-- Only change the ${elementType}, keep everything else exactly the same
-- Apply the exact color ${color} (hex code)
-- Maintain realistic lighting and shadows
-- Keep the same perspective and composition
-- Do not modify furniture, decorations, or other elements
-- The result should look like a professional interior design visualization`
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: image
-                }
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `You are a professional interior design photo editor. Edit this room photo by changing ONLY the ${elementType} to the color ${colorName || color} (hex: ${color}).
+
+Rules:
+- Change ONLY the ${elementType} color. Do NOT modify anything else.
+- Keep the exact same camera angle, lighting direction, and shadows.
+- Maintain realistic material texture and light reflections on the painted surface.
+- Preserve all furniture, decorations, windows, doors, and other elements exactly as they are.
+- The result must look like a real photograph, not a digital render.`
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: image
+                    }
+                  }
+                ]
               }
-            ]
+            ],
+            modalities: ["image", "text"]
+          }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            if (attempt < maxRetries) {
+              // Wait before retry on rate limit
+              await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+              continue;
+            }
+            return new Response(
+              JSON.stringify({ error: "Muitas requisições. Aguarde um momento e tente novamente." }),
+              { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
           }
-        ],
-        modalities: ["image", "text"]
-      }),
-    });
+          if (response.status === 402) {
+            return new Response(
+              JSON.stringify({ error: "Créditos insuficientes. Adicione créditos para continuar." }),
+              { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          const errorText = await response.text();
+          console.error(`AI gateway error (attempt ${attempt + 1}):`, response.status, errorText);
+          lastError = `AI gateway error: ${response.status}`;
+          
+          if (attempt < maxRetries && response.status >= 500) {
+            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(lastError);
+        }
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        const data = await response.json();
+        
+        // Extract the generated image
+        const generatedImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        
+        if (generatedImage) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              image: generatedImage
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // No image generated on this attempt, retry
+        lastError = "Modelo não gerou imagem";
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+
+      } catch (innerError) {
+        lastError = innerError instanceof Error ? innerError.message : "Erro desconhecido";
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
     }
 
-    const data = await response.json();
-    
-    // Extract the generated image
-    const generatedImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    
-    if (generatedImage) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          image: generatedImage
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // If no image was generated, return the original
+    // All retries exhausted
     return new Response(
       JSON.stringify({
         success: false,
-        error: "Could not generate modified image",
+        error: lastError || "Não foi possível gerar a imagem modificada após múltiplas tentativas.",
         image: image // Return original as fallback
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -110,7 +141,7 @@ Important instructions:
     console.error("Error applying color:", error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Unknown error"
+        error: error instanceof Error ? error.message : "Erro desconhecido"
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

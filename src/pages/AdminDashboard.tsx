@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Building2, Palette, LogOut, Upload, Plus, Trash2, PaintBucket, Settings, Layers,
+  Download, FileUp, Home, Eye, Menu,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +27,8 @@ export default function AdminDashboard() {
   // Company creation state
   const [companyName, setCompanyName] = useState('');
   const [companySlug, setCompanySlug] = useState('');
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   // Catalog management
   const [newCatalogName, setNewCatalogName] = useState('');
@@ -98,6 +101,60 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleCompanyNameChange = (value: string) => {
+    setCompanyName(value);
+    if (!slugManuallyEdited) {
+      setCompanySlug(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
+    }
+  };
+
+  const handleSlugChange = (value: string) => {
+    setSlugManuallyEdited(true);
+    setCompanySlug(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
+  };
+
+  const handleExportCSV = () => {
+    if (paints.length === 0) return;
+    const header = 'nome,codigo,hex,categoria';
+    const rows = paints.map(p => `${p.name},${p.code},${p.hex},${p.category}`);
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `catalogo-cores.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast({ title: 'CSV exportado!' });
+  };
+
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeCatalogId) return;
+    const text = await file.text();
+    const lines = text.split('\n').filter(l => l.trim());
+    // skip header if present
+    const startIdx = lines[0]?.toLowerCase().includes('nome') ? 1 : 0;
+    let added = 0;
+    for (let i = startIdx; i < lines.length; i++) {
+      const parts = lines[i].split(',').map(s => s.trim());
+      if (parts.length >= 3) {
+        const [name, code, hex, category] = parts;
+        await addPaint(activeCatalogId, {
+          name, code,
+          hex: hex.startsWith('#') ? hex : `#${hex}`,
+          category: category || 'neutros',
+          is_public: true,
+        });
+        added++;
+      }
+    }
+    const p = await loadPaints(activeCatalogId);
+    setPaints(p);
+    toast({ title: `${added} cores importadas!` });
+    if (csvInputRef.current) csvInputRef.current.value = '';
+  };
+
   if (authLoading || companyLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -124,7 +181,7 @@ export default function AdminDashboard() {
               <Input
                 placeholder="Minha Loja de Tintas"
                 value={companyName}
-                onChange={e => setCompanyName(e.target.value)}
+                onChange={e => handleCompanyNameChange(e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -132,7 +189,7 @@ export default function AdminDashboard() {
               <Input
                 placeholder="minha-loja"
                 value={companySlug}
-                onChange={e => setCompanySlug(e.target.value)}
+                onChange={e => handleSlugChange(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 Será usado na URL: /empresa/{companySlug || 'minha-loja'}
@@ -162,9 +219,21 @@ export default function AdminDashboard() {
           <span className="font-display font-bold text-foreground">{company.name}</span>
           <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Admin</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={signOut}>
-          <LogOut className="w-4 h-4 mr-2" /> Sair
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/">
+              <Home className="w-4 h-4 mr-2" /> Simulador
+            </Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={`/empresa/${company.slug}`}>
+              <Eye className="w-4 h-4 mr-2" /> Página do Cliente
+            </Link>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={signOut}>
+            <LogOut className="w-4 h-4 mr-2" /> Sair
+          </Button>
+        </div>
       </header>
 
       <div className="max-w-5xl mx-auto p-6 space-y-8">
@@ -304,9 +373,30 @@ export default function AdminDashboard() {
             {activeCatalogId && (
               <div className="mt-4 space-y-4">
                 <Separator />
-                <h4 className="font-display font-semibold text-foreground">
-                  Cores do Catálogo
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-display font-semibold text-foreground">
+                    Cores do Catálogo
+                  </h4>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={paints.length === 0}>
+                      <Download className="w-3 h-3 mr-1" /> CSV
+                    </Button>
+                    <label>
+                      <Button variant="outline" size="sm" asChild>
+                        <span>
+                          <FileUp className="w-3 h-3 mr-1" /> Importar
+                          <input
+                            ref={csvInputRef}
+                            type="file"
+                            accept=".csv"
+                            className="sr-only"
+                            onChange={handleImportCSV}
+                          />
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                </div>
 
                 {/* Add paint form */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">

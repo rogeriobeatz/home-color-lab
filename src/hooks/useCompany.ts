@@ -112,11 +112,16 @@ export function useCompany() {
 
   const updateBranding = async (updates: Partial<CompanyBranding>) => {
     if (!branding) return;
+    // Optimistic update - don't reload to avoid flickering
+    setBranding(prev => prev ? { ...prev, ...updates } : prev);
     const { error } = await supabase
       .from('company_branding')
       .update(updates)
       .eq('id', branding.id);
-    if (!error) await loadCompanyData();
+    if (error) {
+      // Revert on error
+      await loadCompanyData();
+    }
     return { error };
   };
 

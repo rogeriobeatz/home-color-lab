@@ -5,31 +5,49 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { paintCatalog, PaintColor, brandLogos, categoryLabels } from '@/data/paintCatalog';
+import type { CompanyPaint } from '@/pages/CompanyPage';
 
 interface ColorCatalogProps {
   onColorSelect: (color: PaintColor) => void;
   selectedColorId?: string;
+  companyPaints?: CompanyPaint[];
 }
 
-export function ColorCatalog({ onColorSelect, selectedColorId }: ColorCatalogProps) {
+export function ColorCatalog({ onColorSelect, selectedColorId, companyPaints }: ColorCatalogProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
+  // If company paints are provided, use them instead of the default catalog
+  const useCompanyMode = companyPaints && companyPaints.length > 0;
+
+  const allColors: PaintColor[] = useMemo(() => {
+    if (useCompanyMode) {
+      return companyPaints!.map(p => ({
+        id: p.id,
+        name: p.name,
+        code: p.code,
+        hex: p.hex,
+        brand: 'suvinil' as const, // default, not shown in company mode
+        category: (p.category || 'neutros') as PaintColor['category'],
+      }));
+    }
+    return paintCatalog;
+  }, [companyPaints, useCompanyMode]);
+
   const filteredColors = useMemo(() => {
-    return paintCatalog.filter(color => {
+    return allColors.filter(color => {
       const matchesSearch = 
         color.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         color.code.toLowerCase().includes(searchQuery.toLowerCase());
       
-      const matchesBrand = selectedBrand === 'all' || color.brand === selectedBrand;
+      const matchesBrand = useCompanyMode || selectedBrand === 'all' || color.brand === selectedBrand;
       const matchesCategory = selectedCategory === 'all' || color.category === selectedCategory;
       
       return matchesSearch && matchesBrand && matchesCategory;
     });
-  }, [searchQuery, selectedBrand, selectedCategory]);
+  }, [searchQuery, selectedBrand, selectedCategory, allColors, useCompanyMode]);
 
-  const brands = ['all', 'suvinil', 'coral', 'sherwin-williams'];
   const categories = ['all', 'neutros', 'quentes', 'frios', 'pasteis', 'vibrantes'];
 
   return (
@@ -45,15 +63,17 @@ export function ColorCatalog({ onColorSelect, selectedColorId }: ColorCatalogPro
         />
       </div>
 
-      {/* Brand filter */}
-      <Tabs value={selectedBrand} onValueChange={setSelectedBrand} className="mb-4">
-        <TabsList className="w-full grid grid-cols-4 h-auto">
-          <TabsTrigger value="all" className="text-xs py-2">Todas</TabsTrigger>
-          <TabsTrigger value="suvinil" className="text-xs py-2">Suvinil</TabsTrigger>
-          <TabsTrigger value="coral" className="text-xs py-2">Coral</TabsTrigger>
-          <TabsTrigger value="sherwin-williams" className="text-xs py-2">S-W</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Brand filter - only show for default catalog */}
+      {!useCompanyMode && (
+        <Tabs value={selectedBrand} onValueChange={setSelectedBrand} className="mb-4">
+          <TabsList className="w-full grid grid-cols-4 h-auto">
+            <TabsTrigger value="all" className="text-xs py-2">Todas</TabsTrigger>
+            <TabsTrigger value="suvinil" className="text-xs py-2">Suvinil</TabsTrigger>
+            <TabsTrigger value="coral" className="text-xs py-2">Coral</TabsTrigger>
+            <TabsTrigger value="sherwin-williams" className="text-xs py-2">S-W</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
 
       {/* Category filter */}
       <div className="flex flex-wrap gap-2 mb-4">
@@ -79,7 +99,12 @@ export function ColorCatalog({ onColorSelect, selectedColorId }: ColorCatalogPro
           {filteredColors.map(color => (
             <button
               key={color.id}
-              onClick={() => onColorSelect(color)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onColorSelect(color);
+              }}
+              type="button"
               className={cn(
                 "relative group rounded-lg overflow-hidden transition-all duration-200 hover:scale-105",
                 selectedColorId === color.id && "ring-2 ring-primary ring-offset-2"
