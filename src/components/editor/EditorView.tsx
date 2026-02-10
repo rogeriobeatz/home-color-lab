@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowLeft, Download, FileText, Palette, PaintBucket } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Download, FileText, Palette, PaintBucket, Home, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,12 +16,17 @@ import { ProcessingOverlay } from './ProcessingOverlay';
 import { EnvironmentCards } from './EnvironmentCards';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import type { CompanyPaint } from '@/pages/CompanyPage';
 
 interface EditorViewProps {
   onBack: () => void;
+  companyName?: string;
+  companyLogo?: string | null;
+  companyPaints?: CompanyPaint[];
+  primaryColor?: string | null;
 }
 
-export function EditorView({ onBack }: EditorViewProps) {
+export function EditorView({ onBack, companyName, companyLogo, companyPaints, primaryColor }: EditorViewProps) {
   const {
     state, activeRoom, addRoom, setActiveRoom, updateRoomName, removeRoom,
     setRoomProcessedImage, setRoomElements, selectElement, updateElementColor, setProcessing,
@@ -208,15 +214,24 @@ export function EditorView({ onBack }: EditorViewProps) {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-              <Palette className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="font-display font-bold text-foreground">DecorAI</span>
+            {companyLogo ? (
+              <img src={companyLogo} alt={companyName} className="h-8 w-auto object-contain" />
+            ) : (
+              <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+                <Palette className="w-4 h-4 text-primary-foreground" />
+              </div>
+            )}
+            <span className="font-display font-bold text-foreground">{companyName || 'DecorAI'}</span>
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/"><Home className="w-4 h-4 mr-1" /> Início</Link>
+          </Button>
+
         {hasRooms && (
-          <div className="flex items-center gap-2">
+          <>
             <Button variant="outline" size="sm" onClick={handleGeneratePDF}>
               <FileText className="w-4 h-4 mr-2" />
               Gerar PDF
@@ -227,8 +242,9 @@ export function EditorView({ onBack }: EditorViewProps) {
                 Baixar
               </Button>
             )}
-          </div>
+          </>
         )}
+        </div>
       </header>
 
       {/* Main content */}
@@ -245,11 +261,34 @@ export function EditorView({ onBack }: EditorViewProps) {
             </div>
           ) : activeRoom ? (
             <div className="max-w-4xl mx-auto space-y-6">
-              <BeforeAfterSlider
-                beforeImage={activeRoom.originalImage}
-                afterImage={activeRoom.processedImage}
-                className="aspect-[4/3] shadow-large"
-              />
+              <div className="relative">
+                <BeforeAfterSlider
+                  beforeImage={activeRoom.originalImage}
+                  afterImage={activeRoom.processedImage}
+                  className="aspect-[4/3] shadow-large"
+                />
+                {/* Clickable element pills overlaid on image */}
+                <div className="absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 justify-center z-10">
+                  {activeRoom.elements.map(el => (
+                    <button
+                      key={el.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectElement(el.id);
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium backdrop-blur-md transition-all ${
+                        activeRoom.selectedElementId === el.id
+                          ? 'bg-primary text-primary-foreground shadow-lg scale-110'
+                          : 'bg-black/40 text-white hover:bg-black/60'
+                      }`}
+                      style={el.color ? { borderLeft: `4px solid ${el.color}` } : undefined}
+                    >
+                      {el.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Environment cards */}
               <EnvironmentCards
@@ -280,6 +319,7 @@ export function EditorView({ onBack }: EditorViewProps) {
                         selectedElement={selectedElement}
                         onElementSelect={selectElement}
                         onColorSelect={handleColorSelect}
+                        companyPaints={companyPaints}
                       />
                     </ScrollArea>
                   </SheetContent>
@@ -305,6 +345,7 @@ export function EditorView({ onBack }: EditorViewProps) {
                   selectedElement={selectedElement}
                   onElementSelect={selectElement}
                   onColorSelect={handleColorSelect}
+                  companyPaints={companyPaints}
                 />
               </div>
             </ScrollArea>
@@ -324,11 +365,13 @@ function SidebarContent({
   selectedElement,
   onElementSelect,
   onColorSelect,
+  companyPaints,
 }: {
   room: import('@/types/project').Room;
   selectedElement: import('@/types/project').RoomElement | undefined;
   onElementSelect: (id: string) => void;
   onColorSelect: (color: PaintColor) => void;
+  companyPaints?: CompanyPaint[];
 }) {
   return (
     <div className="space-y-6">
@@ -346,6 +389,7 @@ function SidebarContent({
           <ColorCatalog
             onColorSelect={onColorSelect}
             selectedColorId={room.elements.find(el => el.id === room.selectedElementId)?.color}
+            companyPaints={companyPaints}
           />
         ) : (
           <p className="text-sm text-muted-foreground">
