@@ -26,7 +26,13 @@ export default function AdminLogin() {
       if (error) {
         toast({ title: 'Erro no cadastro', description: error.message, variant: 'destructive' });
       } else {
-        toast({ title: 'Verifique seu e-mail', description: 'Enviamos um link de confirmação.' });
+        // Auto-confirm enabled: sign in immediately after signup
+        const { error: signInError } = await signIn(email, password);
+        if (signInError) {
+          toast({ title: 'Conta criada!', description: 'Faça login com suas credenciais.' });
+        } else {
+          navigate('/admin');
+        }
       }
     } else {
       const { error } = await signIn(email, password);

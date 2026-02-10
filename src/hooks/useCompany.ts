@@ -85,23 +85,26 @@ export function useCompany() {
   const createCompany = async (name: string, slug: string) => {
     if (!user) return { error: 'Not authenticated' };
 
-    const { data: comp, error: compErr } = await supabase
+    // Generate ID client-side to avoid SELECT permission issues during creation
+    const companyId = crypto.randomUUID();
+
+    const { error: compErr } = await supabase
       .from('companies')
-      .insert({ name, slug })
-      .select()
-      .single();
+      .insert({ id: companyId, name, slug });
 
     if (compErr) return { error: compErr.message };
 
-    // Assign admin role
-    await supabase.from('user_roles').insert({
+    // Assign admin role first (so subsequent queries work with RLS)
+    const { error: roleErr } = await supabase.from('user_roles').insert({
       user_id: user.id,
-      company_id: comp.id,
+      company_id: companyId,
       role: 'admin',
     });
 
-    // Create default branding
-    await supabase.from('company_branding').insert({ company_id: comp.id });
+    if (roleErr) return { error: roleErr.message };
+
+    // Create default branding (now user is admin, RLS allows it)
+    await supabase.from('company_branding').insert({ company_id: companyId });
 
     await loadCompanyData();
     return { error: null };
