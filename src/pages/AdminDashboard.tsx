@@ -1,0 +1,407 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Building2, Palette, LogOut, Upload, Plus, Trash2, PaintBucket, Settings, Layers,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/hooks/useAuth';
+import { useCompany, Paint } from '@/hooks/useCompany';
+import { useToast } from '@/hooks/use-toast';
+
+export default function AdminDashboard() {
+  const { user, loading: authLoading, signOut } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const {
+    company, branding, catalogs, loading: companyLoading,
+    createCompany, updateBranding, uploadLogo,
+    createCatalog, deleteCatalog, loadPaints, addPaint, deletePaint,
+  } = useCompany();
+
+  // Company creation state
+  const [companyName, setCompanyName] = useState('');
+  const [companySlug, setCompanySlug] = useState('');
+
+  // Catalog management
+  const [newCatalogName, setNewCatalogName] = useState('');
+  const [activeCatalogId, setActiveCatalogId] = useState<string | null>(null);
+  const [paints, setPaints] = useState<Paint[]>([]);
+  const [loadingPaints, setLoadingPaints] = useState(false);
+
+  // New paint form
+  const [newPaint, setNewPaint] = useState({ name: '', code: '', hex: '#000000', category: 'neutros' });
+
+  useEffect(() => {
+    if (!authLoading && !user) navigate('/admin/login');
+  }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    if (activeCatalogId) {
+      setLoadingPaints(true);
+      loadPaints(activeCatalogId).then(p => {
+        setPaints(p);
+        setLoadingPaints(false);
+      });
+    }
+  }, [activeCatalogId]);
+
+  const handleCreateCompany = async () => {
+    if (!companyName || !companySlug) return;
+    const { error } = await createCompany(companyName, companySlug.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+    if (error) {
+      toast({ title: 'Erro', description: error, variant: 'destructive' });
+    } else {
+      toast({ title: 'Empresa criada!', description: 'Configure sua marca e catálogos.' });
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const { error } = await uploadLogo(file);
+    if (error) toast({ title: 'Erro no upload', description: error, variant: 'destructive' });
+    else toast({ title: 'Logo atualizado!' });
+  };
+
+  const handleAddCatalog = async () => {
+    if (!newCatalogName) return;
+    const { error } = await createCatalog(newCatalogName);
+    if (error) toast({ title: 'Erro', description: error, variant: 'destructive' });
+    else {
+      toast({ title: 'Catálogo criado!' });
+      setNewCatalogName('');
+    }
+  };
+
+  const handleAddPaint = async () => {
+    if (!activeCatalogId || !newPaint.name || !newPaint.code) return;
+    const { error } = await addPaint(activeCatalogId, { ...newPaint, is_public: true });
+    if (error) toast({ title: 'Erro', description: error, variant: 'destructive' });
+    else {
+      toast({ title: 'Cor adicionada!' });
+      setNewPaint({ name: '', code: '', hex: '#000000', category: 'neutros' });
+      const p = await loadPaints(activeCatalogId);
+      setPaints(p);
+    }
+  };
+
+  const handleDeletePaint = async (paintId: string) => {
+    await deletePaint(paintId);
+    if (activeCatalogId) {
+      const p = await loadPaints(activeCatalogId);
+      setPaints(p);
+    }
+  };
+
+  if (authLoading || companyLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse-soft text-muted-foreground">Carregando...</div>
+      </div>
+    );
+  }
+
+  // No company yet — show setup
+  if (!company) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto w-12 h-12 rounded-xl gradient-primary flex items-center justify-center mb-4">
+              <Building2 className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <CardTitle className="font-display text-2xl">Configurar Empresa</CardTitle>
+            <CardDescription>Crie o perfil da sua empresa para começar</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome da empresa</Label>
+              <Input
+                placeholder="Minha Loja de Tintas"
+                value={companyName}
+                onChange={e => setCompanyName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Slug (URL personalizada)</Label>
+              <Input
+                placeholder="minha-loja"
+                value={companySlug}
+                onChange={e => setCompanySlug(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Será usado na URL: /empresa/{companySlug || 'minha-loja'}
+              </p>
+            </div>
+            <Button className="w-full" onClick={handleCreateCompany} disabled={!companyName || !companySlug}>
+              <Plus className="w-4 h-4 mr-2" /> Criar Empresa
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="h-16 border-b border-border px-6 flex items-center justify-between bg-card">
+        <div className="flex items-center gap-3">
+          {branding?.logo_url ? (
+            <img src={branding.logo_url} alt={company.name} className="h-8 w-auto object-contain" />
+          ) : (
+            <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+              <Palette className="w-4 h-4 text-primary-foreground" />
+            </div>
+          )}
+          <span className="font-display font-bold text-foreground">{company.name}</span>
+          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Admin</span>
+        </div>
+        <Button variant="ghost" size="sm" onClick={signOut}>
+          <LogOut className="w-4 h-4 mr-2" /> Sair
+        </Button>
+      </header>
+
+      <div className="max-w-5xl mx-auto p-6 space-y-8">
+        {/* Branding Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display flex items-center gap-2">
+              <Settings className="w-5 h-5" /> Personalização da Marca
+            </CardTitle>
+            <CardDescription>Configure o logotipo e as cores da sua empresa</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-start gap-6">
+              {/* Logo */}
+              <div className="space-y-2">
+                <Label>Logotipo</Label>
+                <div className="w-32 h-32 border-2 border-dashed border-border rounded-xl flex items-center justify-center overflow-hidden bg-muted">
+                  {branding?.logo_url ? (
+                    <img src={branding.logo_url} alt="Logo" className="w-full h-full object-contain p-2" />
+                  ) : (
+                    <Upload className="w-8 h-8 text-muted-foreground" />
+                  )}
+                </div>
+                <label className="block">
+                  <Button variant="outline" size="sm" className="w-32" asChild>
+                    <span>
+                      <Upload className="w-3 h-3 mr-1" /> Upload
+                      <input type="file" accept="image/*" className="sr-only" onChange={handleLogoUpload} />
+                    </span>
+                  </Button>
+                </label>
+              </div>
+
+              {/* Colors */}
+              <div className="flex-1 space-y-4">
+                <div className="space-y-2">
+                  <Label>Cor primária</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={branding?.primary_color || '#1a8a7a'}
+                      onChange={e => updateBranding({ primary_color: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border-0"
+                    />
+                    <Input
+                      value={branding?.primary_color || '#1a8a7a'}
+                      onChange={e => updateBranding({ primary_color: e.target.value })}
+                      className="w-28 font-mono text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor secundária</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={branding?.secondary_color || '#e8734a'}
+                      onChange={e => updateBranding({ secondary_color: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border-0"
+                    />
+                    <Input
+                      value={branding?.secondary_color || '#e8734a'}
+                      onChange={e => updateBranding({ secondary_color: e.target.value })}
+                      className="w-28 font-mono text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Catalogs Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display flex items-center gap-2">
+              <Layers className="w-5 h-5" /> Catálogos de Tintas
+            </CardTitle>
+            <CardDescription>Gerencie seus catálogos e cores disponíveis para os clientes</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Add catalog */}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Nome do novo catálogo..."
+                value={newCatalogName}
+                onChange={e => setNewCatalogName(e.target.value)}
+              />
+              <Button onClick={handleAddCatalog} disabled={!newCatalogName}>
+                <Plus className="w-4 h-4 mr-1" /> Criar
+              </Button>
+            </div>
+
+            <Separator />
+
+            {/* Catalog list */}
+            {catalogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nenhum catálogo criado ainda. Crie um acima para começar.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {catalogs.map(catalog => (
+                  <button
+                    key={catalog.id}
+                    onClick={() => setActiveCatalogId(activeCatalogId === catalog.id ? null : catalog.id)}
+                    className={`p-4 rounded-lg border text-left transition-colors ${
+                      activeCatalogId === catalog.id
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <PaintBucket className="w-4 h-4 text-primary" />
+                        <span className="font-medium text-foreground">{catalog.name}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await deleteCatalog(catalog.id);
+                          if (activeCatalogId === catalog.id) setActiveCatalogId(null);
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Paint management for active catalog */}
+            {activeCatalogId && (
+              <div className="mt-4 space-y-4">
+                <Separator />
+                <h4 className="font-display font-semibold text-foreground">
+                  Cores do Catálogo
+                </h4>
+
+                {/* Add paint form */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Nome</Label>
+                    <Input
+                      placeholder="Branco Neve"
+                      value={newPaint.name}
+                      onChange={e => setNewPaint(p => ({ ...p, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Código</Label>
+                    <Input
+                      placeholder="B001"
+                      value={newPaint.code}
+                      onChange={e => setNewPaint(p => ({ ...p, code: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Cor</Label>
+                    <div className="flex gap-1">
+                      <input
+                        type="color"
+                        value={newPaint.hex}
+                        onChange={e => setNewPaint(p => ({ ...p, hex: e.target.value }))}
+                        className="w-10 h-10 rounded cursor-pointer border-0"
+                      />
+                      <Input
+                        value={newPaint.hex}
+                        onChange={e => setNewPaint(p => ({ ...p, hex: e.target.value }))}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Categoria</Label>
+                    <select
+                      value={newPaint.category}
+                      onChange={e => setNewPaint(p => ({ ...p, category: e.target.value }))}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="neutros">Neutros</option>
+                      <option value="quentes">Quentes</option>
+                      <option value="frios">Frios</option>
+                      <option value="pasteis">Pastéis</option>
+                      <option value="vibrantes">Vibrantes</option>
+                    </select>
+                  </div>
+                  <Button onClick={handleAddPaint} disabled={!newPaint.name || !newPaint.code}>
+                    <Plus className="w-4 h-4 mr-1" /> Adicionar
+                  </Button>
+                </div>
+
+                {/* Paint list */}
+                <ScrollArea className="max-h-80">
+                  {loadingPaints ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Carregando...</p>
+                  ) : paints.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Nenhuma cor neste catálogo. Adicione acima.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {paints.map(paint => (
+                        <div key={paint.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+                          <div
+                            className="w-8 h-8 rounded-md border border-border shrink-0"
+                            style={{ backgroundColor: paint.hex }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{paint.name}</p>
+                            <p className="text-xs text-muted-foreground">{paint.code} · {paint.hex}</p>
+                          </div>
+                          <span className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full capitalize">
+                            {paint.category}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => handleDeletePaint(paint.id)}
+                          >
+                            <Trash2 className="w-3 h-3 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
