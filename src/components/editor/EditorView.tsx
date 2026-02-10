@@ -12,6 +12,7 @@ import { ElementSelector } from './ElementSelector';
 import { SelectedColorsPanel } from './SelectedColorsPanel';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { ProcessingOverlay } from './ProcessingOverlay';
+import { EnvironmentCards } from './EnvironmentCards';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -20,20 +21,22 @@ interface EditorViewProps {
 }
 
 export function EditorView({ onBack }: EditorViewProps) {
-  const { state, setOriginalImage, setProcessedImage, selectElement, updateElementColor, setProcessing } = useProject();
+  const {
+    state, activeRoom, addRoom, setActiveRoom, updateRoomName, removeRoom,
+    setRoomProcessedImage, setRoomElements, selectElement, updateElementColor, setProcessing,
+  } = useProject();
   const { toast } = useToast();
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [showUpload, setShowUpload] = useState(false);
 
   const handleImageUpload = async (imageData: string) => {
-    setOriginalImage(imageData);
-    setProcessing(true, 'Enviando imagem...');
+    const roomId = addRoom(imageData);
+    setShowUpload(false);
+    setProcessing(true, 'Analisando ambiente com IA...');
     setProcessingProgress(10);
 
     try {
       setProcessingProgress(30);
-      setProcessing(true, 'Identificando elementos do ambiente...');
-      
-      // Call AI to analyze image
       const { data, error } = await supabase.functions.invoke('analyze-room', {
         body: { image: imageData }
       });
@@ -41,35 +44,45 @@ export function EditorView({ onBack }: EditorViewProps) {
       if (error) throw error;
 
       setProcessingProgress(70);
-      setProcessing(true, 'Preparando editor...');
-      
-      // For now, we'll use the original image as the "processed" one
-      // The AI will modify it when colors are applied
-      setProcessedImage(imageData);
-      
+
+      // Update room name from AI if available
+      if (data?.analysis?.roomName) {
+        updateRoomName(roomId, data.analysis.roomName);
+      }
+
+      // Update elements from AI if available
+      if (data?.analysis?.elements) {
+        const aiElements = data.analysis.elements
+          .filter((el: any) => el.canPaint)
+          .map((el: any) => ({
+            id: el.id,
+            name: el.name,
+            type: el.type as any,
+          }));
+        if (aiElements.length > 0) {
+          setRoomElements(roomId, aiElements);
+        }
+      }
+
       setProcessingProgress(100);
       setProcessing(false);
 
       toast({
-        title: 'Imagem analisada!',
-        description: 'Agora você pode selecionar elementos e aplicar cores.',
+        title: 'Ambiente analisado!',
+        description: 'Selecione elementos e aplique cores.',
       });
     } catch (error) {
       console.error('Error analyzing image:', error);
       setProcessing(false);
-      
-      // Even if AI fails, let user continue with manual selection
-      setProcessedImage(imageData);
-      
       toast({
-        title: 'Imagem carregada',
-        description: 'Você pode selecionar elementos e aplicar cores manualmente.',
+        title: 'Ambiente adicionado',
+        description: 'Selecione elementos e aplique cores manualmente.',
       });
     }
   };
 
   const handleColorSelect = async (color: PaintColor) => {
-    if (!state.selectedElementId) {
+    if (!activeRoom?.selectedElementId) {
       toast({
         title: 'Selecione um elemento',
         description: 'Escolha uma parede, teto ou piso antes de aplicar a cor.',
@@ -79,16 +92,15 @@ export function EditorView({ onBack }: EditorViewProps) {
     }
 
     updateElementColor(
-      state.selectedElementId,
+      activeRoom.selectedElementId,
       color.hex,
       color.name,
       color.code,
       color.brand
     );
 
-    // Call AI to apply color to the image
-    const element = state.elements.find(el => el.id === state.selectedElementId);
-    if (element && state.originalImage) {
+    const element = activeRoom.elements.find(el => el.id === activeRoom.selectedElementId);
+    if (element && activeRoom.originalImage) {
       setProcessing(true, `Aplicando ${color.name}...`);
       setProcessingProgress(20);
 
@@ -96,7 +108,7 @@ export function EditorView({ onBack }: EditorViewProps) {
         setProcessingProgress(50);
         const { data, error } = await supabase.functions.invoke('apply-color', {
           body: {
-            image: state.processedImage || state.originalImage,
+            image: activeRoom.processedImage || activeRoom.originalImage,
             elementType: element.type === 'wall' ? element.name : element.type,
             color: color.hex,
             colorName: color.name,
@@ -104,15 +116,11 @@ export function EditorView({ onBack }: EditorViewProps) {
         });
 
         if (error) throw error;
-
         setProcessingProgress(90);
 
         if (data?.success && data?.image) {
-          setProcessedImage(data.image);
-          toast({
-            title: 'Cor aplicada!',
-            description: `${color.name} aplicada com sucesso.`,
-          });
+          setRoomProcessedImage(activeRoom.id, data.image);
+          toast({ title: 'Cor aplicada!', description: `${color.name} aplicada com sucesso.` });
         } else {
           toast({
             title: 'Cor registrada',
@@ -135,27 +143,61 @@ export function EditorView({ onBack }: EditorViewProps) {
   };
 
   const handleDownload = () => {
-    if (!state.processedImage) return;
-    
+    if (!activeRoom?.processedImage) return;
     const link = document.createElement('a');
-    link.href = state.processedImage;
-    link.download = 'decorai-resultado.png';
+    link.href = activeRoom.processedImage;
+    link.download = `decorai-${activeRoom.name}.png`;
     link.click();
-    
-    toast({
-      title: 'Imagem baixada!',
-      description: 'Sua imagem foi salva com sucesso.',
-    });
+    toast({ title: 'Imagem baixada!', description: 'Sua imagem foi salva com sucesso.' });
   };
 
   const handleGeneratePDF = async () => {
-    toast({
-      title: 'Em breve!',
-      description: 'A geração de PDF estará disponível em breve.',
-    });
+    if (state.rooms.length === 0) return;
+    setProcessing(true, 'Gerando PDF consolidado...');
+    setProcessingProgress(30);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-pdf', {
+        body: {
+          rooms: state.rooms.map(r => ({
+            name: r.name,
+            originalImage: r.originalImage,
+            processedImage: r.processedImage,
+            elements: r.elements.filter(el => el.color),
+          })),
+        }
+      });
+
+      if (error) throw error;
+      setProcessingProgress(90);
+
+      if (data?.pdf) {
+        const link = document.createElement('a');
+        link.href = data.pdf;
+        link.download = 'decorai-relatorio.pdf';
+        link.click();
+        toast({ title: 'PDF gerado!', description: 'Relatório com todos os ambientes.' });
+      }
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: 'Não foi possível gerar o relatório. Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessing(false);
+      setProcessingProgress(0);
+    }
   };
 
-  const selectedElement = state.elements.find(el => el.id === state.selectedElementId);
+  const handleAddRoom = () => {
+    setShowUpload(true);
+  };
+
+  const selectedElement = activeRoom?.elements.find(el => el.id === activeRoom.selectedElementId);
+  const hasRooms = state.rooms.length > 0;
+  const showUploadArea = !hasRooms || showUpload;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -172,39 +214,55 @@ export function EditorView({ onBack }: EditorViewProps) {
             <span className="font-display font-bold text-foreground">DecorAI</span>
           </div>
         </div>
-        
-        {state.processedImage && (
+
+        {hasRooms && (
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleGeneratePDF}>
               <FileText className="w-4 h-4 mr-2" />
               Gerar PDF
             </Button>
-            <Button size="sm" onClick={handleDownload} className="gradient-accent text-accent-foreground">
-              <Download className="w-4 h-4 mr-2" />
-              Baixar
-            </Button>
+            {activeRoom?.processedImage && (
+              <Button size="sm" onClick={handleDownload} className="gradient-accent text-accent-foreground">
+                <Download className="w-4 h-4 mr-2" />
+                Baixar
+              </Button>
+            )}
           </div>
         )}
       </header>
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Main area */}
         <main className="flex-1 p-6 overflow-auto">
-          {!state.originalImage ? (
-            <div className="h-full flex items-center justify-center">
+          {showUploadArea ? (
+            <div className="h-full flex flex-col items-center justify-center">
+              {hasRooms && (
+                <Button variant="ghost" className="mb-4" onClick={() => setShowUpload(false)}>
+                  <ArrowLeft className="w-4 h-4 mr-2" /> Voltar ao editor
+                </Button>
+              )}
               <ImageUpload onImageUpload={handleImageUpload} isProcessing={state.isProcessing} />
             </div>
-          ) : state.originalImage && state.processedImage ? (
-            <div className="max-w-4xl mx-auto">
+          ) : activeRoom ? (
+            <div className="max-w-4xl mx-auto space-y-6">
               <BeforeAfterSlider
-                beforeImage={state.originalImage}
-                afterImage={state.processedImage}
+                beforeImage={activeRoom.originalImage}
+                afterImage={activeRoom.processedImage}
                 className="aspect-[4/3] shadow-large"
               />
-              
+
+              {/* Environment cards */}
+              <EnvironmentCards
+                rooms={state.rooms}
+                activeRoomId={state.activeRoomId}
+                onSelectRoom={setActiveRoom}
+                onAddRoom={handleAddRoom}
+                onRemoveRoom={removeRoom}
+                onRenameRoom={updateRoomName}
+              />
+
               {/* Mobile panel trigger */}
-              <div className="lg:hidden mt-6">
+              <div className="lg:hidden">
                 <Sheet>
                   <SheetTrigger asChild>
                     <Button className="w-full" size="lg">
@@ -217,8 +275,8 @@ export function EditorView({ onBack }: EditorViewProps) {
                       <SheetTitle>Editor de Cores</SheetTitle>
                     </SheetHeader>
                     <ScrollArea className="mt-4 h-[calc(100%-2rem)]">
-                      <UnifiedSidebar
-                        state={state}
+                      <SidebarContent
+                        room={activeRoom}
                         selectedElement={selectedElement}
                         onElementSelect={selectElement}
                         onColorSelect={handleColorSelect}
@@ -232,7 +290,7 @@ export function EditorView({ onBack }: EditorViewProps) {
         </main>
 
         {/* Sidebar - Desktop only */}
-        {state.processedImage && (
+        {activeRoom && !showUpload && (
           <aside className="hidden lg:flex w-80 border-l border-border bg-card flex-col">
             <div className="p-4 border-b border-border">
               <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
@@ -242,8 +300,8 @@ export function EditorView({ onBack }: EditorViewProps) {
             </div>
             <ScrollArea className="flex-1">
               <div className="p-4">
-                <UnifiedSidebar
-                  state={state}
+                <SidebarContent
+                  room={activeRoom}
                   selectedElement={selectedElement}
                   onElementSelect={selectElement}
                   onColorSelect={handleColorSelect}
@@ -254,7 +312,6 @@ export function EditorView({ onBack }: EditorViewProps) {
         )}
       </div>
 
-      {/* Processing overlay */}
       {state.isProcessing && (
         <ProcessingOverlay step={state.processingStep} progress={processingProgress} />
       )}
@@ -262,40 +319,33 @@ export function EditorView({ onBack }: EditorViewProps) {
   );
 }
 
-// Unified sidebar content — no tabs, single column
-function UnifiedSidebar({
-  state,
+function SidebarContent({
+  room,
   selectedElement,
   onElementSelect,
   onColorSelect,
 }: {
-  state: ReturnType<typeof useProject>['state'];
-  selectedElement: ReturnType<typeof useProject>['state']['elements'][0] | undefined;
+  room: import('@/types/project').Room;
+  selectedElement: import('@/types/project').RoomElement | undefined;
   onElementSelect: (id: string) => void;
   onColorSelect: (color: PaintColor) => void;
 }) {
   return (
     <div className="space-y-6">
-      {/* Section 1: Elements */}
       <ElementSelector
-        elements={state.elements}
-        selectedElementId={state.selectedElementId}
+        elements={room.elements}
+        selectedElementId={room.selectedElementId}
         onElementSelect={onElementSelect}
       />
-
       <Separator />
-
-      {/* Section 2: Color Catalog */}
       <div>
         <h3 className="text-sm font-semibold text-foreground mb-3">
-          {selectedElement
-            ? `Cores para: ${selectedElement.name}`
-            : 'Selecione um elemento acima'}
+          {selectedElement ? `Cores para: ${selectedElement.name}` : 'Selecione um elemento acima'}
         </h3>
         {selectedElement ? (
           <ColorCatalog
             onColorSelect={onColorSelect}
-            selectedColorId={state.elements.find(el => el.id === state.selectedElementId)?.color}
+            selectedColorId={room.elements.find(el => el.id === room.selectedElementId)?.color}
           />
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -303,12 +353,10 @@ function UnifiedSidebar({
           </p>
         )}
       </div>
-
-      {/* Section 3: Summary */}
-      {state.elements.some(el => el.color) && (
+      {room.elements.some(el => el.color) && (
         <>
           <Separator />
-          <SelectedColorsPanel elements={state.elements} />
+          <SelectedColorsPanel elements={room.elements} />
         </>
       )}
     </div>
