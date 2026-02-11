@@ -5,20 +5,55 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const MAX_IMAGE_SIZE = 10_000_000; // 10MB
+const VALID_HEX = /^#[0-9A-Fa-f]{3,8}$/;
+const SAFE_STRING = /^[a-zA-ZÀ-ÿ0-9\s\-_.,()]+$/;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { image, elementType, color, colorName } = await req.json();
+    const body = await req.json();
+    const { image, elementType, color, colorName } = body;
     
-    if (!image || !elementType || !color) {
+    // Validate image
+    if (!image || typeof image !== 'string' || image.length > MAX_IMAGE_SIZE) {
       return new Response(
-        JSON.stringify({ error: "Missing required parameters: image, elementType, color" }),
+        JSON.stringify({ error: "Invalid or missing image (max 10MB)" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    if (!image.startsWith('data:image/')) {
+      return new Response(
+        JSON.stringify({ error: "Invalid image format" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate elementType
+    if (!elementType || typeof elementType !== 'string' || elementType.length > 100) {
+      return new Response(
+        JSON.stringify({ error: "Invalid element type" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate color (hex)
+    if (!color || typeof color !== 'string' || !VALID_HEX.test(color)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid color format (expected hex like #RRGGBB)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Sanitize elementType and colorName for prompt injection prevention
+    const safeElementType = elementType.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, '');
+    const safeColorName = typeof colorName === 'string' 
+      ? colorName.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, '') 
+      : color;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -45,10 +80,10 @@ serve(async (req) => {
                 content: [
                   {
                     type: "text",
-                    text: `You are a professional interior design photo editor. Edit this room photo by changing ONLY the ${elementType} to the color ${colorName || color} (hex: ${color}).
+                    text: `You are a professional interior design photo editor. Edit this room photo by changing ONLY the ${safeElementType} to the color ${safeColorName} (hex: ${color}).
 
 Rules:
-- Change ONLY the ${elementType} color. Do NOT modify anything else.
+- Change ONLY the ${safeElementType} color. Do NOT modify anything else.
 - Keep the exact same camera angle, lighting direction, and shadows.
 - Maintain realistic material texture and light reflections on the painted surface.
 - Preserve all furniture, decorations, windows, doors, and other elements exactly as they are.
@@ -70,7 +105,6 @@ Rules:
         if (!response.ok) {
           if (response.status === 429) {
             if (attempt < maxRetries) {
-              // Wait before retry on rate limit
               await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
               continue;
             }
@@ -98,7 +132,6 @@ Rules:
 
         const data = await response.json();
         
-        // Extract the generated image
         const generatedImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         
         if (generatedImage) {
@@ -111,7 +144,6 @@ Rules:
           );
         }
 
-        // No image generated on this attempt, retry
         lastError = "Modelo não gerou imagem";
         if (attempt < maxRetries) {
           await new Promise(r => setTimeout(r, 1000));
@@ -127,12 +159,11 @@ Rules:
       }
     }
 
-    // All retries exhausted
     return new Response(
       JSON.stringify({
         success: false,
         error: lastError || "Não foi possível gerar a imagem modificada após múltiplas tentativas.",
-        image: image // Return original as fallback
+        image: image
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -141,7 +172,7 @@ Rules:
     console.error("Error applying color:", error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Erro desconhecido"
+        error: "Failed to apply color"
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

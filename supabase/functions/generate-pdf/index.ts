@@ -5,13 +5,31 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function isValidDataUrl(url: string): boolean {
+  return /^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,/.test(url);
+}
+
+function isValidHexColor(color: string): boolean {
+  return /^#[0-9A-Fa-f]{3,8}$/.test(color);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { rooms } = await req.json();
+    const body = await req.json();
+    const { rooms } = body;
 
     if (!rooms || !Array.isArray(rooms) || rooms.length === 0) {
       return new Response(
@@ -20,11 +38,47 @@ serve(async (req) => {
       );
     }
 
-    // Build an HTML document that will be converted to a downloadable HTML report
-    // (A full PDF library would be heavy for edge functions; we generate a self-contained HTML report)
-    const html = buildReportHTML(rooms);
+    if (rooms.length > 20) {
+      return new Response(
+        JSON.stringify({ error: "Too many rooms (max 20)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // Convert to base64 data URL so the client can download it
+    // Validate and sanitize rooms
+    const sanitizedRooms: RoomData[] = [];
+    for (const room of rooms) {
+      if (typeof room.name !== 'string' || room.name.length > 200) {
+        return new Response(
+          JSON.stringify({ error: "Invalid room name" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (!Array.isArray(room.elements) || room.elements.length > 50) {
+        return new Response(
+          JSON.stringify({ error: "Invalid elements" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const sanitizedElements: RoomElement[] = room.elements.map((el: any) => ({
+        name: typeof el.name === 'string' ? el.name.slice(0, 100) : '',
+        color: typeof el.color === 'string' && isValidHexColor(el.color) ? el.color : undefined,
+        colorName: typeof el.colorName === 'string' ? el.colorName.slice(0, 100) : undefined,
+        colorCode: typeof el.colorCode === 'string' ? el.colorCode.slice(0, 50) : undefined,
+        colorBrand: typeof el.colorBrand === 'string' ? el.colorBrand.slice(0, 100) : undefined,
+      }));
+
+      sanitizedRooms.push({
+        name: room.name.slice(0, 200),
+        originalImage: typeof room.originalImage === 'string' && isValidDataUrl(room.originalImage) ? room.originalImage : '',
+        processedImage: typeof room.processedImage === 'string' && isValidDataUrl(room.processedImage) ? room.processedImage : '',
+        elements: sanitizedElements,
+      });
+    }
+
+    const html = buildReportHTML(sanitizedRooms);
+
     const encoder = new TextEncoder();
     const bytes = encoder.encode(html);
     const base64 = btoa(String.fromCharCode(...bytes));
@@ -37,7 +91,7 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error generating PDF:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: "Failed to generate report" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -63,20 +117,20 @@ function buildReportHTML(rooms: RoomData[]): string {
     const colorRows = room.elements
       .map(el => `
         <tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${el.name}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(el.name)}</td>
           <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">
             <span style="display:inline-block;width:24px;height:24px;border-radius:4px;background:${el.color || '#eee'};vertical-align:middle;margin-right:8px;border:1px solid #ccc;"></span>
-            ${el.colorName || '—'}
+            ${escapeHtml(el.colorName || '—')}
           </td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-family:monospace;">${el.colorCode || '—'}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${el.colorBrand || '—'}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-family:monospace;">${escapeHtml(el.colorCode || '—')}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(el.colorBrand || '—')}</td>
         </tr>
       `).join('');
 
     return `
       <div style="page-break-inside:avoid;margin-bottom:40px;">
         <h2 style="font-size:20px;color:#1a1a2e;margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #2a9d8f;">
-          ${i + 1}. ${room.name}
+          ${i + 1}. ${escapeHtml(room.name)}
         </h2>
         <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
