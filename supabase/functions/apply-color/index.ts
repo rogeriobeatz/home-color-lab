@@ -82,12 +82,15 @@ serve(async (req) => {
                     type: "text",
                     text: `You are a professional interior design photo editor. Edit this room photo by changing ONLY the ${safeElementType} to the color ${safeColorName} (hex: ${color}).
 
-Rules:
-- Change ONLY the ${safeElementType} color. Do NOT modify anything else.
-- Keep the exact same camera angle, lighting direction, and shadows.
+STRICT RULES — FOLLOW ALL OF THEM:
+- Change ONLY the color of the ${safeElementType}. Do NOT modify ANY other part of the image.
+- Do NOT add any text, labels, watermarks, annotations, or overlays to the image.
+- Do NOT add, remove, or move any objects, furniture, decorations, windows, or doors.
+- Do NOT change the camera angle, perspective, or crop of the image.
+- Keep the exact same lighting direction, shadows, and ambient light.
 - Maintain realistic material texture and light reflections on the painted surface.
-- Preserve all furniture, decorations, windows, doors, and other elements exactly as they are.
-- The result must look like a real photograph, not a digital render.`
+- The result must look like a real photograph, not a digital render.
+- Output ONLY the edited photo. No text, no captions, no explanations.`
                   },
                   {
                     type: "image_url",
