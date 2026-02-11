@@ -81,7 +81,13 @@ serve(async (req) => {
 
     const encoder = new TextEncoder();
     const bytes = encoder.encode(html);
-    const base64 = btoa(String.fromCharCode(...bytes));
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    const base64 = btoa(binary);
     const dataUrl = `data:text/html;base64,${base64}`;
 
     return new Response(
