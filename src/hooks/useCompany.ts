@@ -31,6 +31,10 @@ export interface Paint {
   hex: string;
   category: string;
   is_public: boolean;
+  rgb?: string | null;
+  cmyk?: string | null;
+  ral?: string | null;
+  ncs?: string | null;
 }
 
 export function useCompany() {

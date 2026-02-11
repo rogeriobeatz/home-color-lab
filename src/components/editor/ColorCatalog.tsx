@@ -6,14 +6,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { paintCatalog, PaintColor, brandLogos, categoryLabels } from '@/data/paintCatalog';
 import type { CompanyPaint } from '@/pages/CompanyPage';
+import { QuickAddPaint } from './QuickAddPaint';
 
 interface ColorCatalogProps {
   onColorSelect: (color: PaintColor) => void;
   selectedColorId?: string;
   companyPaints?: CompanyPaint[];
+  catalogId?: string;
+  onPaintAdded?: () => void;
 }
 
-export function ColorCatalog({ onColorSelect, selectedColorId, companyPaints }: ColorCatalogProps) {
+export function ColorCatalog({ onColorSelect, selectedColorId, companyPaints, catalogId, onPaintAdded }: ColorCatalogProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -118,6 +121,8 @@ export function ColorCatalog({ onColorSelect, selectedColorId, companyPaints }: 
                 <div className="absolute bottom-0 left-0 right-0 p-2">
                   <p className="text-white text-xs font-medium truncate">{color.name}</p>
                   <p className="text-white/70 text-[10px]">{color.code}</p>
+                  {color.ral && <p className="text-white/70 text-[10px]">RAL: {color.ral}</p>}
+                  {color.ncs && <p className="text-white/70 text-[10px]">NCS: {color.ncs}</p>}
                 </div>
               </div>
               {selectedColorId === color.id && (

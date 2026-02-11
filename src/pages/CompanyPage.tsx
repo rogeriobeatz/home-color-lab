@@ -23,6 +23,10 @@ export interface CompanyPaint {
   code: string;
   hex: string;
   category: string;
+  rgb?: string | null;
+  cmyk?: string | null;
+  ral?: string | null;
+  ncs?: string | null;
 }
 
 export default function CompanyPage() {

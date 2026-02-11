@@ -6,6 +6,10 @@ export interface PaintColor {
   hex: string;
   brand: 'suvinil' | 'coral' | 'sherwin-williams';
   category: 'neutros' | 'quentes' | 'frios' | 'pasteis' | 'vibrantes';
+  rgb?: string;
+  cmyk?: string;
+  ral?: string;
+  ncs?: string;
 }
 
 export const paintCatalog: PaintColor[] = [
