@@ -13,6 +13,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/hooks/useAuth';
 import { useCompany, Paint } from '@/hooks/useCompany';
 import { useToast } from '@/hooks/use-toast';
+import { PaintForm, PaintFormData } from '@/components/admin/PaintForm';
+import { PaintsList } from '@/components/admin/PaintsList';
 
 export default function AdminDashboard() {
   const { user, loading: authLoading, signOut } = useAuth();
@@ -37,7 +39,7 @@ export default function AdminDashboard() {
   const [loadingPaints, setLoadingPaints] = useState(false);
 
   // New paint form
-  const [newPaint, setNewPaint] = useState({ name: '', code: '', hex: '#000000', category: 'neutros' });
+  const [newPaint, setNewPaint] = useState<PaintFormData>({ name: '', code: '', hex: '#000000', category: 'neutros' });
 
   useEffect(() => {
     if (!authLoading && !user) navigate('/admin/login');
@@ -81,15 +83,16 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleAddPaint = async () => {
-    if (!activeCatalogId || !newPaint.name || !newPaint.code) return;
-    const { error } = await addPaint(activeCatalogId, { ...newPaint, is_public: true });
+  const handleAddPaint = async (data: PaintFormData) => {
+    if (!activeCatalogId) return;
+    const { error } = await addPaint(activeCatalogId, { ...data, is_public: true });
     if (error) toast({ title: 'Erro', description: error, variant: 'destructive' });
     else {
       toast({ title: 'Cor adicionada!' });
-      setNewPaint({ name: '', code: '', hex: '#000000', category: 'neutros' });
-      const p = await loadPaints(activeCatalogId);
-      setPaints(p);
+      if (activeCatalogId) {
+        const p = await loadPaints(activeCatalogId);
+        setPaints(p);
+      }
     }
   };
 
@@ -399,94 +402,18 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Add paint form */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Nome</Label>
-                    <Input
-                      placeholder="Branco Neve"
-                      value={newPaint.name}
-                      onChange={e => setNewPaint(p => ({ ...p, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Código</Label>
-                    <Input
-                      placeholder="B001"
-                      value={newPaint.code}
-                      onChange={e => setNewPaint(p => ({ ...p, code: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Cor</Label>
-                    <div className="flex gap-1">
-                      <input
-                        type="color"
-                        value={newPaint.hex}
-                        onChange={e => setNewPaint(p => ({ ...p, hex: e.target.value }))}
-                        className="w-10 h-10 rounded cursor-pointer border-0"
-                      />
-                      <Input
-                        value={newPaint.hex}
-                        onChange={e => setNewPaint(p => ({ ...p, hex: e.target.value }))}
-                        className="font-mono text-xs"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Categoria</Label>
-                    <select
-                      value={newPaint.category}
-                      onChange={e => setNewPaint(p => ({ ...p, category: e.target.value }))}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="neutros">Neutros</option>
-                      <option value="quentes">Quentes</option>
-                      <option value="frios">Frios</option>
-                      <option value="pasteis">Pastéis</option>
-                      <option value="vibrantes">Vibrantes</option>
-                    </select>
-                  </div>
-                  <Button onClick={handleAddPaint} disabled={!newPaint.name || !newPaint.code}>
-                    <Plus className="w-4 h-4 mr-1" /> Adicionar
-                  </Button>
-                </div>
+                <PaintForm
+                  onSubmit={handleAddPaint}
+                  compact
+                />
 
                 {/* Paint list */}
-                <ScrollArea className="max-h-80">
-                  {loadingPaints ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">Carregando...</p>
-                  ) : paints.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Nenhuma cor neste catálogo. Adicione acima.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {paints.map(paint => (
-                        <div key={paint.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
-                          <div
-                            className="w-8 h-8 rounded-md border border-border shrink-0"
-                            style={{ backgroundColor: paint.hex }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{paint.name}</p>
-                            <p className="text-xs text-muted-foreground">{paint.code} · {paint.hex}</p>
-                          </div>
-                          <span className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full capitalize">
-                            {paint.category}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => handleDeletePaint(paint.id)}
-                          >
-                            <Trash2 className="w-3 h-3 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
+                <PaintsList
+                  paints={paints}
+                  loading={loadingPaints}
+                  onDelete={handleDeletePaint}
+                  empty="Nenhuma cor neste catálogo. Adicione acima."
+                />
               </div>
             )}
           </CardContent>
