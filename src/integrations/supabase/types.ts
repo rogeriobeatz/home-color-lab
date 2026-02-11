@@ -115,34 +115,46 @@ export type Database = {
         Row: {
           catalog_id: string
           category: string
+          cmyk: string | null
           code: string
           created_at: string
           hex: string
           id: string
           is_public: boolean
           name: string
+          ncs: string | null
+          ral: string | null
+          rgb: string | null
           updated_at: string
         }
         Insert: {
           catalog_id: string
           category?: string
+          cmyk?: string | null
           code: string
           created_at?: string
           hex: string
           id?: string
           is_public?: boolean
           name: string
+          ncs?: string | null
+          ral?: string | null
+          rgb?: string | null
           updated_at?: string
         }
         Update: {
           catalog_id?: string
           category?: string
+          cmyk?: string | null
           code?: string
           created_at?: string
           hex?: string
           id?: string
           is_public?: boolean
           name?: string
+          ncs?: string | null
+          ral?: string | null
+          rgb?: string | null
           updated_at?: string
         }
         Relationships: [
