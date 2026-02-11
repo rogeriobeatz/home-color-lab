@@ -398,6 +398,7 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
               </div>
             </div>
           ) : null}
+          </div>
         </main>
 
         {/* Sidebar - Desktop only */}
