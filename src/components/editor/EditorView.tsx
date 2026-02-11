@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Download, FileText, Palette, PaintBucket, Home, Settings } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Palette, PaintBucket, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -24,9 +24,30 @@ interface EditorViewProps {
   companyLogo?: string | null;
   companyPaints?: CompanyPaint[];
   primaryColor?: string | null;
+  secondaryColor?: string | null;
 }
 
-export function EditorView({ onBack, companyName, companyLogo, companyPaints, primaryColor }: EditorViewProps) {
+/** Convert a hex color (#RRGGBB) to HSL string "H S% L%" */
+function hexToHsl(hex: string): string | null {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!m) return null;
+  let r = parseInt(m[1], 16) / 255;
+  let g = parseInt(m[2], 16) / 255;
+  let b = parseInt(m[3], 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+export function EditorView({ onBack, companyName, companyLogo, companyPaints, primaryColor, secondaryColor }: EditorViewProps) {
   const {
     state, activeRoom, addRoom, setActiveRoom, updateRoomName, removeRoom,
     setRoomProcessedImage, setRoomElements, selectElement, updateElementColor, setProcessing,
@@ -34,6 +55,21 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
   const { toast } = useToast();
   const [processingProgress, setProcessingProgress] = useState(0);
   const [showUpload, setShowUpload] = useState(false);
+
+  const isWhiteLabel = !!companyName;
+
+  // Compute CSS variable overrides for company branding
+  const brandingStyle = useMemo(() => {
+    if (!primaryColor) return undefined;
+    const hsl = hexToHsl(primaryColor);
+    if (!hsl) return undefined;
+    const style: Record<string, string> = { '--primary': hsl, '--ring': hsl };
+    if (secondaryColor) {
+      const secHsl = hexToHsl(secondaryColor);
+      if (secHsl) style['--accent'] = secHsl;
+    }
+    return style as React.CSSProperties;
+  }, [primaryColor, secondaryColor]);
 
   const handleImageUpload = async (imageData: string) => {
     const roomId = addRoom(imageData);
@@ -51,12 +87,10 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
 
       setProcessingProgress(70);
 
-      // Update room name from AI if available
       if (data?.analysis?.roomName) {
         updateRoomName(roomId, data.analysis.roomName);
       }
 
-      // Update elements from AI if available
       if (data?.analysis?.elements) {
         const aiElements = data.analysis.elements
           .filter((el: any) => el.canPaint)
@@ -206,44 +240,57 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
   const showUploadArea = !hasRooms || showUpload;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col" style={brandingStyle}>
       {/* Header */}
-      <header className="h-16 border-b border-border px-4 flex items-center justify-between bg-card">
+      <header className="h-16 border-b border-border px-4 flex items-center justify-between bg-card shadow-soft">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onBack}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div className="flex items-center gap-2">
+          {!isWhiteLabel && (
+            <Button variant="ghost" size="icon" onClick={onBack}>
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          )}
+          <div className="flex items-center gap-3">
             {companyLogo ? (
-              <img src={companyLogo} alt={companyName} className="h-8 w-auto object-contain" />
+              <img src={companyLogo} alt={companyName} className="h-9 w-auto object-contain" />
             ) : (
-              <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-                <Palette className="w-4 h-4 text-primary-foreground" />
+              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
+                <Palette className="w-5 h-5 text-primary-foreground" />
               </div>
             )}
-            <span className="font-display font-bold text-foreground">{companyName || 'DecorAI'}</span>
+            <div>
+              <span className="font-display font-bold text-foreground text-lg leading-tight block">
+                {companyName || 'DecorAI'}
+              </span>
+              {isWhiteLabel && (
+                <span className="text-[10px] text-muted-foreground leading-none">
+                  Simulador de Cores
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/"><Home className="w-4 h-4 mr-1" /> Início</Link>
-          </Button>
-
-        {hasRooms && (
-          <>
-            <Button variant="outline" size="sm" onClick={handleGeneratePDF}>
-              <FileText className="w-4 h-4 mr-2" />
-              Gerar PDF
+          {!isWhiteLabel && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/"><Home className="w-4 h-4 mr-1" /> Início</Link>
             </Button>
-            {activeRoom?.processedImage && (
-              <Button size="sm" onClick={handleDownload} className="gradient-accent text-accent-foreground">
-                <Download className="w-4 h-4 mr-2" />
-                Baixar
+          )}
+
+          {hasRooms && (
+            <>
+              <Button variant="outline" size="sm" onClick={handleGeneratePDF}>
+                <FileText className="w-4 h-4 mr-2" />
+                Gerar PDF
               </Button>
-            )}
-          </>
-        )}
+              {activeRoom?.processedImage && (
+                <Button size="sm" onClick={handleDownload} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Download className="w-4 h-4 mr-2" />
+                  Baixar
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </header>
 
@@ -251,13 +298,37 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
       <div className="flex-1 flex overflow-hidden">
         <main className="flex-1 p-6 overflow-auto">
           {showUploadArea ? (
-            <div className="h-full flex flex-col items-center justify-center">
+            <div className="h-full flex flex-col items-center justify-center max-w-3xl mx-auto">
               {hasRooms && (
                 <Button variant="ghost" className="mb-4" onClick={() => setShowUpload(false)}>
                   <ArrowLeft className="w-4 h-4 mr-2" /> Voltar ao editor
                 </Button>
               )}
+
+              {/* Welcome banner for white-label */}
+              {isWhiteLabel && !hasRooms && (
+                <div className="text-center mb-8 animate-fade-in">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
+                    <Palette className="w-4 h-4" />
+                    Experiência personalizada por {companyName}
+                  </div>
+                  <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-3">
+                    Visualize suas cores
+                  </h1>
+                  <p className="text-muted-foreground text-lg max-w-md mx-auto">
+                    Envie uma foto do seu ambiente e experimente as cores do nosso catálogo exclusivo em tempo real.
+                  </p>
+                </div>
+              )}
+
               <ImageUpload onImageUpload={handleImageUpload} isProcessing={state.isProcessing} />
+
+              {/* Powered by footer for white-label */}
+              {isWhiteLabel && (
+                <p className="mt-8 text-xs text-muted-foreground/60">
+                  Tecnologia por <span className="font-medium">DecorAI</span>
+                </p>
+              )}
             </div>
           ) : activeRoom ? (
             <div className="max-w-4xl mx-auto space-y-6">
@@ -265,7 +336,7 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
                 <BeforeAfterSlider
                   beforeImage={activeRoom.originalImage}
                   afterImage={activeRoom.processedImage}
-                  className="aspect-[4/3] shadow-large"
+                  className="aspect-[4/3] shadow-large rounded-2xl"
                 />
                 {/* Clickable element pills overlaid on image */}
                 <div className="absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 justify-center z-10">
@@ -304,7 +375,7 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
               <div className="lg:hidden">
                 <Sheet>
                   <SheetTrigger asChild>
-                    <Button className="w-full" size="lg">
+                    <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90" size="lg">
                       <PaintBucket className="w-5 h-5 mr-2" />
                       Escolher cores
                     </Button>
@@ -334,7 +405,7 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
           <aside className="hidden lg:flex w-80 border-l border-border bg-card flex-col">
             <div className="p-4 border-b border-border">
               <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
-                <PaintBucket className="w-4 h-4" />
+                <PaintBucket className="w-4 h-4 text-primary" />
                 Editor de Cores
               </h2>
             </div>

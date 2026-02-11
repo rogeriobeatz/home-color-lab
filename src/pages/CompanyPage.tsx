@@ -106,6 +106,7 @@ export default function CompanyPage() {
       companyLogo={branding?.logo_url}
       companyPaints={paints}
       primaryColor={branding?.primary_color}
+      secondaryColor={branding?.secondary_color}
     />
   );
 }
