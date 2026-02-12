@@ -116,10 +116,25 @@ export default function AdminDashboard() {
     setCompanySlug(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
   };
 
+  const sanitizeCSVCell = (value: string): string => {
+    if (!value) return '';
+    let v = value;
+    const firstChar = v.charAt(0);
+    if (['=', '+', '-', '@', '\t', '\r'].includes(firstChar)) {
+      v = "'" + v;
+    }
+    if (v.includes(',') || v.includes('\n') || v.includes('"')) {
+      v = '"' + v.replace(/"/g, '""') + '"';
+    }
+    return v;
+  };
+
   const handleExportCSV = () => {
     if (paints.length === 0) return;
     const header = 'nome,codigo,hex,categoria';
-    const rows = paints.map(p => `${p.name},${p.code},${p.hex},${p.category}`);
+    const rows = paints.map(p =>
+      [p.name, p.code, p.hex, p.category].map(sanitizeCSVCell).join(',')
+    );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -131,26 +146,39 @@ export default function AdminDashboard() {
     toast({ title: 'CSV exportado!' });
   };
 
+  const VALID_HEX = /^#[0-9A-Fa-f]{3,8}$/;
+  const MAX_CSV_ROWS = 1000;
+
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeCatalogId) return;
+    if (file.size > 5_000_000) {
+      toast({ title: 'Erro', description: 'Arquivo muito grande (máx 5MB)', variant: 'destructive' });
+      return;
+    }
     const text = await file.text();
     const lines = text.split('\n').filter(l => l.trim());
-    // skip header if present
     const startIdx = lines[0]?.toLowerCase().includes('nome') ? 1 : 0;
+    if (lines.length - startIdx > MAX_CSV_ROWS) {
+      toast({ title: 'Erro', description: `Máximo ${MAX_CSV_ROWS} cores por importação`, variant: 'destructive' });
+      return;
+    }
     let added = 0;
     for (let i = startIdx; i < lines.length; i++) {
       const parts = lines[i].split(',').map(s => s.trim());
-      if (parts.length >= 3) {
-        const [name, code, hex, category] = parts;
-        await addPaint(activeCatalogId, {
-          name, code,
-          hex: hex.startsWith('#') ? hex : `#${hex}`,
-          category: category || 'neutros',
-          is_public: true,
-        });
-        added++;
-      }
+      if (parts.length < 3) continue;
+      const [name, code, rawHex, category] = parts;
+      if (!name || name.length > 100) continue;
+      if (!code || code.length > 50) continue;
+      const hex = rawHex.startsWith('#') ? rawHex : `#${rawHex}`;
+      if (!VALID_HEX.test(hex)) continue;
+      await addPaint(activeCatalogId, {
+        name: name.slice(0, 100), code: code.slice(0, 50),
+        hex,
+        category: (category || 'neutros').slice(0, 50),
+        is_public: true,
+      });
+      added++;
     }
     const p = await loadPaints(activeCatalogId);
     setPaints(p);
