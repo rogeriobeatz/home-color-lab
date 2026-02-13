@@ -1,116 +1,93 @@
 
 
-# 🎨 DecorAI - Visualizador de Cores e Revestimentos
+# Integrar Replicate como provedor de IA externo
 
-Uma ferramenta inteligente que permite ao consumidor final visualizar como diferentes cores de tintas, pisos e revestimentos ficariam em sua casa, usando inteligência artificial para identificar e segmentar automaticamente os elementos do ambiente.
+## Objetivo
+Substituir o Lovable AI Gateway pelo Replicate para as duas operações de IA do projeto (analise de ambiente e aplicacao de cores), visando reducao de custos.
 
----
+## Como funciona o Replicate
 
-## 🏠 Página Inicial
+O Replicate e uma plataforma que hospeda modelos open-source de IA. Voce paga por segundo de execucao, e os modelos de visao/edicao de imagem costumam ser mais baratos que APIs proprietarias.
 
-**Hero Section impactante** com:
-- Título chamativo explicando o valor da ferramenta
-- Demonstração visual animada do antes/depois
-- Botão de call-to-action "Começar agora" 
-- Seção explicando o passo a passo (Upload → IA identifica → Escolha cores → Visualize)
+**Modelos recomendados para o seu caso:**
+- **Analise de ambiente**: `meta/llama-4-maverick-instruct` (modelo multimodal que aceita imagens) ou manter Lovable AI para esta parte (ja e barata ~$0.001/chamada)
+- **Edicao de imagem (aplicar cores)**: `stability-ai/stable-diffusion-img2img` ou `adirik/flux-dev` para edicao de imagem guiada por prompt -- e onde esta o maior custo hoje
 
----
+## Etapas de implementacao
 
-## 📤 Upload e Análise da Imagem
+### 1. Configurar API Key do Replicate
+- Voce precisara criar uma conta em [replicate.com](https://replicate.com) e gerar um API Token
+- O token sera armazenado de forma segura como secret no backend (REPLICATE_API_KEY)
 
-**Área de upload intuitiva:**
-- Arrastar e soltar ou selecionar arquivo
-- Suporte para fotos de celular ou câmera
-- Preview da imagem carregada
+### 2. Atualizar Edge Function `apply-color`
+- Trocar a chamada ao Lovable AI Gateway pela API do Replicate
+- Usar um modelo de edicao de imagem (img2img) com o prompt existente
+- A API do Replicate funciona de forma assincrona: voce cria uma "prediction" e depois consulta o resultado (polling)
+- Manter toda a validacao, rate limiting e tratamento de erros existentes
 
-**Processamento com IA:**
-- A IA (usando Lovable AI) analisa a imagem e identifica automaticamente:
-  - Paredes
-  - Teto
-  - Piso
-  - Portas e janelas
-  - Móveis (para não colorir por engano)
-- Indicador de progresso enquanto processa
-- Resultado mostra a imagem com as áreas identificadas destacadas
+### 3. Atualizar Edge Function `analyze-room` (opcional)
+- A analise de ambiente ja e barata (~$0.001). Pode manter no Lovable AI Gateway
+- Se quiser migrar tambem, usaria um modelo multimodal do Replicate
 
----
+### 4. Adaptar resposta no frontend
+- O formato de retorno muda ligeiramente (Replicate retorna URL da imagem gerada em vez de base64)
+- O EditorView.tsx precisara de ajuste minimo para lidar com URLs externas
 
-## 🎨 Editor de Cores e Revestimentos
+## Secao tecnica
 
-**Painel lateral com as seguintes seções:**
+### Fluxo da API do Replicate
 
-### Catálogo de Tintas (Marcas Reais)
-- **Suvinil** - Paleta completa com códigos
-- **Coral** - Cores e referências oficiais
-- **Sherwin-Williams** - Catálogo profissional
-- Busca por nome, código ou cor
-- Filtros por tonalidade (neutros, quentes, frios, pastéis, vibrantes)
+```text
+Cliente -> Edge Function -> Replicate API (POST /predictions)
+                                |
+                          (polling ate concluir)
+                                |
+                         URL da imagem gerada
+                                |
+Edge Function <- resultado <- Replicate
+Cliente <- { success: true, image: "https://..." }
+```
 
-### Seletor de Elementos
-- Botões para selecionar: Parede 1, Parede 2, Teto, Piso
-- Possibilidade de pintar cada elemento com cor diferente
-- Opção de aplicar mesma cor em múltiplos elementos
+### Exemplo de chamada ao Replicate
 
-### Biblioteca de Revestimentos
-- Pisos (madeira, porcelanato, cerâmica, vinílico)
-- Texturas de parede (cimento queimado, tijolinho, papel de parede)
-- Rodapés e molduras
+```typescript
+// Criar prediction
+const response = await fetch("https://api.replicate.com/v1/predictions", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${REPLICATE_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "stability-ai/stable-diffusion-img2img",
+    input: {
+      image: imageUrl,
+      prompt: "room with wall painted in blue color...",
+      strength: 0.6,
+    }
+  })
+});
+// Depois fazer polling no campo "urls.get" ate status = "succeeded"
+```
 
-**Área de edição principal:**
-- Imagem grande para visualização
-- Zoom para ver detalhes
-- Aplicação de cores em tempo real ao clicar
+### Comparativo de custos estimados
 
----
+| Operacao | Lovable AI (atual) | Replicate (estimado) |
+|----------|-------------------|---------------------|
+| Analise de ambiente | ~$0.001-0.003 | ~$0.001-0.005 |
+| Aplicar cor (por imagem) | ~$0.02-0.04 | ~$0.005-0.015 |
+| Sessao tipica (1+3) | ~$0.09-0.12 | ~$0.02-0.05 |
 
-## ⚖️ Comparativo Antes/Depois
+### Arquivos modificados
 
-- Slider interativo para comparar original vs modificado
-- Visualização lado a lado
-- Toggle para ver apenas o antes ou apenas o depois
+- `supabase/functions/apply-color/index.ts` -- trocar provider de IA
+- `supabase/functions/analyze-room/index.ts` -- opcional, pode manter como esta
+- `src/components/editor/EditorView.tsx` -- ajuste menor para lidar com URLs de imagem
+- `supabase/config.toml` -- sem alteracoes necessarias
 
----
+### Consideracoes
 
-## 📋 Painel de Cores Selecionadas
-
-- Lista das cores escolhidas para cada elemento
-- Nome da cor, código e marca
-- Miniatura da cor
-- Fácil de copiar o código para comprar na loja
-
----
-
-## 📥 Exportação
-
-### Download da Imagem
-- Baixar imagem final em alta resolução
-- Opção de incluir marca d'água ou logo da empresa
-
-### Relatório PDF
-- Documento profissional com:
-  - Foto original
-  - Foto com as cores aplicadas
-  - Lista completa de cores utilizadas (nome, código, marca)
-  - QR codes ou links para compra
-  - Espaço para logo/branding personalizado
-
----
-
-## 🔧 Requisitos Técnicos
-
-- **Lovable Cloud** para backend e processamento
-- **Lovable AI** (modelo de visão) para identificar e segmentar elementos da imagem
-- **Lovable AI** (modelo de imagem) para aplicar as cores/revestimentos na foto
-- **Interface responsiva** para funcionar em desktop e mobile
-- **Sem necessidade de login** - uso imediato
-
----
-
-## 🎯 Diferenciais do Produto
-
-- Catálogo real de marcas com códigos oficiais
-- IA que reconhece automaticamente os elementos
-- Relatório PDF profissional para levar à loja
-- Interface moderna e intuitiva
-- Funciona direto no navegador, sem instalar nada
+- **Latencia**: O Replicate pode ser mais lento (10-30s vs 5-15s do Gemini) por causa do cold start e polling
+- **Qualidade**: Modelos open-source podem gerar resultados com qualidade diferente; sera necessario testar e ajustar prompts
+- **Fallback**: Podemos manter o Lovable AI como fallback caso o Replicate falhe
 
