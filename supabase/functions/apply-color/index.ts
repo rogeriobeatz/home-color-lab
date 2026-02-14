@@ -113,7 +113,7 @@ serve(async (req) => {
         Prefer: "wait",
       },
       body: JSON.stringify({
-        model: "asiryan/flux-dev",
+        version: "6871951c85104c710f9a723c3151465b88f4d9190919d498bfe99f8d94bc5197",
         input: {
           image: image,
           prompt: prompt,
