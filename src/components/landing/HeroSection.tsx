@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, Building2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface HeroSectionProps {
   onGetStarted: () => void;
@@ -48,8 +49,12 @@ export function HeroSection({ onGetStarted }: HeroSectionProps) {
                 variant="outline"
                 size="lg"
                 className="text-lg px-8 py-6 rounded-xl"
+                asChild
               >
-                Ver demonstração
+                <Link to="/admin/login">
+                  <Building2 className="w-5 h-5 mr-2" />
+                  Área da Empresa
+                </Link>
               </Button>
             </div>
 
