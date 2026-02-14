@@ -128,6 +128,18 @@ serve(async (req) => {
       const errText = await createRes.text();
       console.error("Replicate create error:", createRes.status, errText);
       
+      if (createRes.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Créditos insuficientes no Replicate. Adicione créditos em replicate.com/account/billing." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (createRes.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Muitas requisições ao Replicate. Aguarde alguns segundos e tente novamente." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       if (createRes.status === 422) {
         return new Response(
           JSON.stringify({ error: "Imagem inválida ou modelo indisponível. Tente novamente." }),
