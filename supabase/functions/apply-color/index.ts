@@ -7,12 +7,11 @@ const corsHeaders = {
 
 const MAX_IMAGE_SIZE = 10_000_000; // 10MB
 const VALID_HEX = /^#[0-9A-Fa-f]{3,8}$/;
-const SAFE_STRING = /^[a-zA-ZÀ-ÿ0-9\s\-_.,()]+$/;
 
 // Simple in-memory rate limiter per IP
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 5; // max requests per window (stricter - AI image generation is expensive)
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5;
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -23,6 +22,25 @@ function isRateLimited(ip: string): boolean {
   }
   entry.count++;
   return entry.count > RATE_LIMIT_MAX;
+}
+
+/** Poll Replicate prediction until completed or failed */
+async function pollPrediction(url: string, apiKey: string, maxWaitMs = 120_000): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`Replicate poll error: ${res.status}`);
+    const data = await res.json();
+    if (data.status === "succeeded") return data;
+    if (data.status === "failed" || data.status === "canceled") {
+      throw new Error(`Replicate prediction ${data.status}: ${data.error || "unknown"}`);
+    }
+    // Wait before next poll (progressive backoff)
+    await new Promise(r => setTimeout(r, Math.min(3000, 1000 + (Date.now() - start) / 10)));
+  }
+  throw new Error("Replicate prediction timed out");
 }
 
 serve(async (req) => {
@@ -42,16 +60,15 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const { image, elementType, color, colorName } = body;
-    
+
     // Validate image
-    if (!image || typeof image !== 'string' || image.length > MAX_IMAGE_SIZE) {
+    if (!image || typeof image !== "string" || image.length > MAX_IMAGE_SIZE) {
       return new Response(
         JSON.stringify({ error: "Invalid or missing image (max 10MB)" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    if (!image.startsWith('data:image/')) {
+    if (!image.startsWith("data:image/")) {
       return new Response(
         JSON.stringify({ error: "Invalid image format" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -59,7 +76,7 @@ serve(async (req) => {
     }
 
     // Validate elementType
-    if (!elementType || typeof elementType !== 'string' || elementType.length > 100) {
+    if (!elementType || typeof elementType !== "string" || elementType.length > 100) {
       return new Response(
         JSON.stringify({ error: "Invalid element type" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -67,141 +84,97 @@ serve(async (req) => {
     }
 
     // Validate color (hex)
-    if (!color || typeof color !== 'string' || !VALID_HEX.test(color)) {
+    if (!color || typeof color !== "string" || !VALID_HEX.test(color)) {
       return new Response(
         JSON.stringify({ error: "Invalid color format (expected hex like #RRGGBB)" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Sanitize elementType and colorName for prompt injection prevention
-    const safeElementType = elementType.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, '');
-    const safeColorName = typeof colorName === 'string' 
-      ? colorName.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, '') 
+    // Sanitize inputs for prompt
+    const safeElementType = elementType.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, "");
+    const safeColorName = typeof colorName === "string"
+      ? colorName.slice(0, 100).replace(/[^\w\sÀ-ÿ\-]/g, "")
       : color;
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
+    if (!REPLICATE_API_KEY) {
+      throw new Error("REPLICATE_API_KEY is not configured");
     }
 
-    // Retry logic for transient errors
-    const maxRetries = 2;
-    let lastError: string | null = null;
+    const prompt = `A professional interior design photo. Change ONLY the ${safeElementType} to the color ${safeColorName} (hex: ${color}). Keep everything else exactly the same. No text, no labels, no watermarks. Realistic photograph, same lighting and perspective. Do not add or remove any objects.`;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash-image",
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: `You are a professional interior design photo editor. Edit this room photo by changing ONLY the ${safeElementType} to the color ${safeColorName} (hex: ${color}).
+    // Create prediction using Replicate API
+    const createRes = await fetch("https://api.replicate.com/v1/predictions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${REPLICATE_API_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "wait",
+      },
+      body: JSON.stringify({
+        model: "asiryan/flux-dev",
+        input: {
+          image: image,
+          prompt: prompt,
+          prompt_strength: 0.55,
+          num_inference_steps: 28,
+          guidance_scale: 3.5,
+        },
+      }),
+    });
 
-STRICT RULES — FOLLOW ALL OF THEM:
-- Change ONLY the color of the ${safeElementType}. Do NOT modify ANY other part of the image.
-- Do NOT add any text, labels, watermarks, annotations, or overlays to the image.
-- Do NOT add, remove, or move any objects, furniture, decorations, windows, or doors.
-- Do NOT change the camera angle, perspective, or crop of the image.
-- Keep the exact same lighting direction, shadows, and ambient light.
-- Maintain realistic material texture and light reflections on the painted surface.
-- The result must look like a real photograph, not a digital render.
-- Output ONLY the edited photo. No text, no captions, no explanations.`
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: image
-                    }
-                  }
-                ]
-              }
-            ],
-            modalities: ["image", "text"]
-          }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 429) {
-            if (attempt < maxRetries) {
-              await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-              continue;
-            }
-            return new Response(
-              JSON.stringify({ error: "Muitas requisições. Aguarde um momento e tente novamente." }),
-              { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          if (response.status === 402) {
-            return new Response(
-              JSON.stringify({ error: "Créditos insuficientes. Adicione créditos para continuar." }),
-              { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          const errorText = await response.text();
-          console.error(`AI gateway error (attempt ${attempt + 1}):`, response.status, errorText);
-          lastError = `AI gateway error: ${response.status}`;
-          
-          if (attempt < maxRetries && response.status >= 500) {
-            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-            continue;
-          }
-          throw new Error(lastError);
-        }
-
-        const data = await response.json();
-        
-        const generatedImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-        
-        if (generatedImage) {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              image: generatedImage
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        lastError = "Modelo não gerou imagem";
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, 1000));
-          continue;
-        }
-
-      } catch (innerError) {
-        lastError = innerError instanceof Error ? innerError.message : "Erro desconhecido";
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-          continue;
-        }
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      console.error("Replicate create error:", createRes.status, errText);
+      
+      if (createRes.status === 422) {
+        return new Response(
+          JSON.stringify({ error: "Imagem inválida ou modelo indisponível. Tente novamente." }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
+      throw new Error(`Replicate API error: ${createRes.status}`);
+    }
+
+    let prediction = await createRes.json();
+
+    // If not already completed (Prefer: wait may return completed), poll
+    if (prediction.status !== "succeeded") {
+      const pollUrl = prediction.urls?.get;
+      if (!pollUrl) throw new Error("No poll URL from Replicate");
+      prediction = await pollPrediction(pollUrl, REPLICATE_API_KEY);
+    }
+
+    // Extract output image URL(s)
+    const output = prediction.output;
+    let imageUrl: string | null = null;
+
+    if (Array.isArray(output) && output.length > 0) {
+      imageUrl = output[0];
+    } else if (typeof output === "string") {
+      imageUrl = output;
+    }
+
+    if (imageUrl) {
+      return new Response(
+        JSON.stringify({ success: true, image: imageUrl }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
       JSON.stringify({
         success: false,
-        error: lastError || "Não foi possível gerar a imagem modificada após múltiplas tentativas.",
-        image: image
+        error: "Modelo não gerou imagem. Tente novamente.",
+        image: image,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (error) {
     console.error("Error applying color:", error);
     return new Response(
-      JSON.stringify({ 
-        error: "Failed to apply color"
-      }),
+      JSON.stringify({ error: "Failed to apply color" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

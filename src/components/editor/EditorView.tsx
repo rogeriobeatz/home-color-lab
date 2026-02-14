@@ -182,13 +182,28 @@ export function EditorView({ onBack, companyName, companyLogo, companyPaints, pr
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!activeRoom?.processedImage) return;
-    const link = document.createElement('a');
-    link.href = activeRoom.processedImage;
-    link.download = `decorai-${activeRoom.name}.png`;
-    link.click();
-    toast({ title: 'Imagem baixada!', description: 'Sua imagem foi salva com sucesso.' });
+    try {
+      const imgSrc = activeRoom.processedImage;
+      let blobUrl: string;
+      if (imgSrc.startsWith('data:')) {
+        blobUrl = imgSrc;
+      } else {
+        // Remote URL (e.g. from Replicate) — fetch and create blob
+        const res = await fetch(imgSrc);
+        const blob = await res.blob();
+        blobUrl = URL.createObjectURL(blob);
+      }
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `decorai-${activeRoom.name}.png`;
+      link.click();
+      if (blobUrl !== imgSrc) URL.revokeObjectURL(blobUrl);
+      toast({ title: 'Imagem baixada!', description: 'Sua imagem foi salva com sucesso.' });
+    } catch {
+      toast({ title: 'Erro ao baixar', description: 'Não foi possível baixar a imagem.', variant: 'destructive' });
+    }
   };
 
   const handleGeneratePDF = async () => {
