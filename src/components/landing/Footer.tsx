@@ -1,4 +1,5 @@
 import { Palette } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export function Footer() {
   return (
@@ -17,14 +18,14 @@ export function Footer() {
           </p>
 
           <div className="flex gap-4 text-sm text-muted-foreground">
+            <Link to="/admin/login" className="hover:text-foreground transition-colors">
+              Área da Empresa
+            </Link>
             <a href="#" className="hover:text-foreground transition-colors">
               Termos
             </a>
             <a href="#" className="hover:text-foreground transition-colors">
               Privacidade
-            </a>
-            <a href="#" className="hover:text-foreground transition-colors">
-              Contato
             </a>
           </div>
         </div>

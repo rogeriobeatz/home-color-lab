@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { HeroSection } from '@/components/landing/HeroSection';
 import { HowItWorks } from '@/components/landing/HowItWorks';
 import { Features } from '@/components/landing/Features';
+import { PricingSection } from '@/components/landing/PricingSection';
 import { CTASection } from '@/components/landing/CTASection';
 import { Footer } from '@/components/landing/Footer';
 import { EditorView } from '@/components/editor/EditorView';
@@ -28,6 +29,7 @@ const Index = () => {
       <HeroSection onGetStarted={handleGetStarted} />
       <HowItWorks />
       <Features />
+      <PricingSection />
       <CTASection onGetStarted={handleGetStarted} />
       <Footer />
     </div>

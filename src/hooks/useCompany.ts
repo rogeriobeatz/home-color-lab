@@ -21,6 +21,8 @@ export interface PaintCatalog {
   company_id: string;
   name: string;
   description: string | null;
+  logo_url?: string | null;
+  is_active?: boolean;
 }
 
 export interface Paint {

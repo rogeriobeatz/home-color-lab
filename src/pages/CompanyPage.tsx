@@ -61,13 +61,16 @@ export default function CompanyPage() {
 
     const [brandingRes, catalogsRes] = await Promise.all([
       supabase.from('company_branding').select('*').eq('company_id', comp.id).maybeSingle(),
-      supabase.from('company_paint_catalogs').select('id').eq('company_id', comp.id),
+      supabase.from('company_paint_catalogs').select('id, is_active').eq('company_id', comp.id),
     ]);
 
     if (brandingRes.data) setBranding(brandingRes.data as BrandingData);
 
     if (catalogsRes.data && catalogsRes.data.length > 0) {
-      const catalogIds = catalogsRes.data.map((c: any) => c.id);
+      // Filter to only active catalogs
+      const activeCatalogs = catalogsRes.data.filter((c: any) => c.is_active !== false);
+      const catalogIds = activeCatalogs.map((c: any) => c.id);
+      if (catalogIds.length === 0) { setLoading(false); return; }
       const { data: paintsData } = await supabase
         .from('paints')
         .select('*')
